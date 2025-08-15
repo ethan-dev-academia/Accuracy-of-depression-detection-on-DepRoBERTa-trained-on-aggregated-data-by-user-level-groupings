@@ -3,6 +3,7 @@
 Enhanced Script to check for duplicate usernames in the second column of CSV datasets.
 Completely rewritten with better file detection and more accurate duplicate checking.
 Now includes detailed duplicate analysis showing messages and content.
+Enhanced with multiprocessing for faster batch processing.
 """
 
 import pandas as pd
@@ -10,6 +11,9 @@ import os
 from collections import Counter, defaultdict
 import sys
 from pathlib import Path
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
 
 def get_all_csv_files(data_dir):
     """
@@ -136,6 +140,180 @@ def analyze_csv_file(file_path):
             'success': False
         }
 
+def analyze_csv_files_batch(file_paths, max_workers=None, show_progress=True):
+    """
+    Analyze multiple CSV files concurrently using multiprocessing.
+    
+    Args:
+        file_paths (list): List of Path objects for CSV files to analyze
+        max_workers (int): Maximum number of worker processes (default: CPU count)
+        show_progress (bool): Whether to show progress information
+        
+    Returns:
+        list: List of analysis results
+    """
+    if not file_paths:
+        return []
+    
+    if max_workers is None:
+        max_workers = min(mp.cpu_count(), len(file_paths))
+    
+    if show_progress:
+        print(f"\n🚀 Starting batch analysis with {max_workers} worker processes...")
+        print(f"Processing {len(file_paths)} files concurrently...")
+    
+    start_time = time.time()
+    results = []
+    
+    try:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_file = {executor.submit(analyze_csv_file, file_path): file_path 
+                            for file_path in file_paths}
+            
+            # Process completed tasks
+            completed_count = 0
+            for future in as_completed(future_to_file):
+                file_path = future_to_file[future]
+                completed_count += 1
+                
+                try:
+                    result = future.result()
+                    results.append(result)
+                    
+                    if show_progress:
+                        status = "✅" if result['success'] else "❌"
+                        print(f"[{completed_count}/{len(file_paths)}] {status} {file_path.name}")
+                        
+                except Exception as e:
+                    error_result = {
+                        'file_path': str(file_path),
+                        'file_name': file_path.name,
+                        'error': f"Processing error: {str(e)}",
+                        'success': False
+                    }
+                    results.append(error_result)
+                    
+                    if show_progress:
+                        print(f"[{completed_count}/{len(file_paths)}] ❌ {file_path.name} - Error: {str(e)}")
+    
+    except Exception as e:
+        print(f"❌ Error in batch processing: {str(e)}")
+        # Fallback to sequential processing
+        print("🔄 Falling back to sequential processing...")
+        results = []
+        for i, file_path in enumerate(file_paths):
+            if show_progress:
+                print(f"[{i+1}/{len(file_paths)}] Processing {file_path.name}...")
+            result = analyze_csv_file(file_path)
+            results.append(result)
+    
+    elapsed_time = time.time() - start_time
+    
+    if show_progress:
+        print(f"\n⏱️  Batch processing completed in {elapsed_time:.2f} seconds")
+        print(f"Average time per file: {elapsed_time/len(file_paths):.2f} seconds")
+    
+    return results
+
+def analyze_csv_files_optimized(file_paths, use_multiprocessing=True, max_workers=None, 
+                               batch_size=10, show_progress=True):
+    """
+    Optimized function that can process files in batches with multiprocessing.
+    
+    Args:
+        file_paths (list): List of Path objects for CSV files to analyze
+        use_multiprocessing (bool): Whether to use multiprocessing
+        max_workers (int): Maximum number of worker processes
+        batch_size (int): Number of files to process in each batch
+        show_progress (bool): Whether to show progress information
+        
+    Returns:
+        list: List of analysis results
+    """
+    if not file_paths:
+        return []
+    
+    if not use_multiprocessing or len(file_paths) <= 1:
+        # Sequential processing for small datasets
+        if show_progress:
+            print(f"\n🔄 Processing {len(file_paths)} files sequentially...")
+        
+        results = []
+        for i, file_path in enumerate(file_paths):
+            if show_progress:
+                print(f"[{i+1}/{len(file_paths)}] Processing {file_path.name}...")
+            result = analyze_csv_file(file_path)
+            results.append(result)
+        return results
+    
+    # Multiprocessing with batching for large datasets
+    if show_progress:
+        print(f"\n🚀 Optimized batch processing with multiprocessing...")
+        print(f"Total files: {len(file_paths)}")
+        print(f"Batch size: {batch_size}")
+        print(f"Max workers: {max_workers or mp.cpu_count()}")
+    
+    all_results = []
+    total_batches = (len(file_paths) + batch_size - 1) // batch_size
+    
+    for batch_num in range(total_batches):
+        start_idx = batch_num * batch_size
+        end_idx = min(start_idx + batch_size, len(file_paths))
+        batch_files = file_paths[start_idx:end_idx]
+        
+        if show_progress:
+            print(f"\n📦 Processing batch {batch_num + 1}/{total_batches} ({len(batch_files)} files)...")
+        
+        batch_results = analyze_csv_files_batch(
+            batch_files, 
+            max_workers=max_workers, 
+            show_progress=show_progress
+        )
+        all_results.extend(batch_results)
+    
+    return all_results
+
+def example_usage():
+    """
+    Example function showing how to use the multiprocessing functionality programmatically.
+    This can be called from other scripts or used as a reference.
+    """
+    print("🔍 Example Usage of Multiprocessing CSV Analyzer")
+    print("=" * 60)
+    
+    # Example 1: Basic multiprocessing
+    print("\n📚 Example 1: Basic multiprocessing")
+    print("results = analyze_csv_files_optimized(csv_files)")
+    
+    # Example 2: Custom worker count
+    print("\n📚 Example 2: Custom worker count")
+    print("results = analyze_csv_files_optimized(csv_files, max_workers=4)")
+    
+    # Example 3: Custom batch size
+    print("\n📚 Example 3: Custom batch size")
+    print("results = analyze_csv_files_optimized(csv_files, batch_size=20)")
+    
+    # Example 4: Sequential processing
+    print("\n📚 Example 4: Sequential processing")
+    print("results = analyze_csv_files_optimized(csv_files, use_multiprocessing=False)")
+    
+    # Example 5: Full customization
+    print("\n📚 Example 5: Full customization")
+    print("results = analyze_csv_files_optimized(")
+    print("    csv_files,")
+    print("    use_multiprocessing=True,")
+    print("    max_workers=6,")
+    print("    batch_size=15,")
+    print("    show_progress=True")
+    print(")")
+    
+    print("\n💡 Performance Tips:")
+    print("• Use multiprocessing for datasets with 5+ files")
+    print("• Set max_workers to your CPU core count for best performance")
+    print("• Adjust batch_size based on available memory")
+    print("• For very large datasets, use smaller batch sizes")
+
 def show_detailed_duplicates(result):
     """
     Show detailed information about duplicates including messages and content.
@@ -194,6 +372,45 @@ def main():
     print("🔍 CSV Duplicate Username Checker")
     print("=" * 60)
     
+    # Parse command line arguments
+    use_multiprocessing = True
+    max_workers = None
+    batch_size = 10
+    
+    if len(sys.argv) > 1:
+        for arg in sys.argv[1:]:
+            if arg == "--no-mp" or arg == "-s":
+                use_multiprocessing = False
+                print("🔄 Sequential processing mode enabled")
+            elif arg.startswith("--workers=") or arg.startswith("-w="):
+                try:
+                    max_workers = int(arg.split("=")[1])
+                    print(f"👥 Using {max_workers} worker processes")
+                except ValueError:
+                    print("⚠️  Invalid worker count, using default")
+            elif arg.startswith("--batch-size=") or arg.startswith("-b="):
+                try:
+                    batch_size = int(arg.split("=")[1])
+                    print(f"📦 Batch size set to {batch_size}")
+                except ValueError:
+                    print("⚠️  Invalid batch size, using default")
+            elif arg == "--help" or arg == "-h":
+                print("\nUsage: python check_duplicate_usernames.py [OPTIONS]")
+                print("\nOptions:")
+                print("  --no-mp, -s          Use sequential processing instead of multiprocessing")
+                print("  --workers=N, -w=N    Set number of worker processes (default: CPU count)")
+                print("  --batch-size=N, -b=N Set batch size for processing (default: 10)")
+                print("  --examples, -e       Show example usage")
+                print("  --help, -h           Show this help message")
+                print("\nExamples:")
+                print("  python check_duplicate_usernames.py")
+                print("  python check_duplicate_usernames.py --no-mp")
+                print("  python check_duplicate_usernames.py --workers=4 --batch-size=20")
+                return
+            elif arg == "--examples" or arg == "-e":
+                example_usage()
+                return
+    
     # Get all CSV files
     csv_files = get_all_csv_files("F:/DATA STORAGE/RMH Dataset")
     
@@ -208,24 +425,22 @@ def main():
     
     print("\n" + "=" * 60)
     
-    # Analyze each file
-    results = []
-    successful_analyses = 0
-    total_duplicates = 0
-    total_rows = 0
-    total_unique = 0
+    # Use optimized processing
+    start_time = time.time()
+    results = analyze_csv_files_optimized(
+        csv_files,
+        use_multiprocessing=use_multiprocessing,
+        max_workers=max_workers,
+        batch_size=batch_size,
+        show_progress=True
+    )
+    total_processing_time = time.time() - start_time
     
-    for i, file_path in enumerate(csv_files, 1):
-        print(f"\n[{i}/{len(csv_files)}] Processing...")
-        
-        result = analyze_csv_file(file_path)
-        results.append(result)
-        
-        if result['success']:
-            successful_analyses += 1
-            total_duplicates += result['duplicate_count']
-            total_rows += result['total_rows']
-            total_unique += result['unique_usernames']
+    # Calculate statistics
+    successful_analyses = sum(1 for r in results if r['success'])
+    total_duplicates = sum(r['duplicate_count'] for r in results if r['success'])
+    total_rows = sum(r['total_rows'] for r in results if r['success'])
+    total_unique = sum(r['unique_usernames'] for r in results if r['success'])
     
     # Summary report
     print("\n" + "=" * 60)
@@ -235,6 +450,12 @@ def main():
     print(f"Files processed: {len(csv_files)}")
     print(f"Successful analyses: {successful_analyses}")
     print(f"Failed analyses: {len(csv_files) - successful_analyses}")
+    print(f"Total processing time: {total_processing_time:.2f} seconds")
+    
+    if use_multiprocessing:
+        print(f"Processing mode: Multiprocessing (batch size: {batch_size})")
+    else:
+        print("Processing mode: Sequential")
     
     if successful_analyses > 0:
         print(f"\n📈 Data Statistics:")
