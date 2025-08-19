@@ -14,14 +14,77 @@ import json
 from pathlib import Path
 from collections import Counter, defaultdict
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import threading
 from queue import Queue
 
+class ProgressTracker:
+    """Enhanced progress tracking with ETA and continuation percentage."""
+    
+    def __init__(self, total_items, start_time=None):
+        self.total_items = total_items
+        self.start_time = start_time or time.time()
+        self.processed_items = 0
+        self.batch_start_time = time.time()
+        self.batch_processed = 0
+        
+    def update(self, items_processed=1, is_batch_complete=False):
+        """Update progress and calculate ETA."""
+        self.processed_items += items_processed
+        self.batch_processed += items_processed
+        
+        if is_batch_complete:
+            self.batch_start_time = time.time()
+            self.batch_processed = 0
+        
+        # Calculate progress
+        progress_pct = (self.processed_items / self.total_items) * 100
+        
+        # Calculate ETA
+        elapsed_time = time.time() - self.start_time
+        if self.processed_items > 0:
+            avg_time_per_item = elapsed_time / self.processed_items
+            remaining_items = self.total_items - self.processed_items
+            eta_seconds = remaining_items * avg_time_per_item
+            eta = timedelta(seconds=int(eta_seconds))
+        else:
+            eta = timedelta(0)
+        
+        # Calculate batch progress
+        if self.batch_processed > 0:
+            batch_elapsed = time.time() - self.batch_start_time
+            batch_eta_seconds = (self.total_items - self.processed_items) * (batch_elapsed / self.batch_processed)
+            batch_eta = timedelta(seconds=int(batch_eta_seconds))
+        else:
+            batch_eta = eta
+        
+        return {
+            'progress_pct': progress_pct,
+            'processed': self.processed_items,
+            'total': self.total_items,
+            'eta': eta,
+            'batch_eta': batch_eta,
+            'elapsed': timedelta(seconds=int(elapsed_time)),
+            'avg_time_per_item': avg_time_per_item if self.processed_items > 0 else 0
+        }
+    
+    def format_progress_bar(self, progress_data, width=50):
+        """Format a visual progress bar with detailed information."""
+        filled = int(width * progress_data['progress_pct'] / 100)
+        bar = '█' * filled + '░' * (width - filled)
+        
+        return (
+            f"📊 Progress: [{bar}] {progress_data['progress_pct']:.1f}% "
+            f"({progress_data['processed']:,}/{progress_data['total']:,}) "
+            f"⏱️ ETA: {progress_data['eta']} "
+            f"🕐 Elapsed: {progress_data['elapsed']} "
+            f"⚡ {progress_data['avg_time_per_item']:.2f}s/username"
+        )
+
 class RedditUserAnalyzer:
-    def __init__(self, client_id=None, client_secret=None, user_agent=None):
+    def __init__(self, client_id=None, client_secret=None, user_agent=None, instance_id=1):
         """
         Initialize the Reddit API analyzer.
         
@@ -29,10 +92,12 @@ class RedditUserAnalyzer:
             client_id (str): Reddit API client ID
             client_secret (str): Reddit API client secret  
             user_agent (str): User agent string for API requests
+            instance_id (int): Instance identifier for multi-instance setups
         """
         self.client_id = client_id
         self.client_secret = client_secret
-        self.user_agent = user_agent or "RedditUserAnalyzer/1.0"
+        self.user_agent = user_agent or f"RedditUserAnalyzer/1.0-Instance{instance_id}"
+        self.instance_id = instance_id
         self.access_token = None
         self.rate_limit_remaining = 60  # Reddit allows 60 requests per minute
         self.rate_limit_reset = time.time() + 60
@@ -276,6 +341,9 @@ class RedditUserAnalyzer:
         results = []
         results_lock = threading.Lock()
         
+        # Initialize progress tracker for this batch
+        progress_tracker = ProgressTracker(len(usernames), start_time)
+        
         # Split usernames into batches for each worker
         batch_size = max(1, len(usernames) // max_workers)
         username_batches = [usernames[i:i + batch_size] for i in range(0, len(usernames), batch_size)]
@@ -301,7 +369,9 @@ class RedditUserAnalyzer:
             with results_lock:
                 results.extend(batch_results)
                 if show_progress:
+                    progress_data = progress_tracker.update(len(batch), is_batch_complete=True)
                     print(f"[{batch_num}/{len(username_batches)}] ✅ Batch completed: {len(batch)} usernames")
+                    print(f"  {progress_tracker.format_progress_bar(progress_data)}")
         
         # Create and start threads
         threads = []
@@ -377,6 +447,9 @@ class RedditUserAnalyzer:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         checkpoint_file = f"reddit_user_analysis_checkpoint_{timestamp}.json"
         
+        # Initialize progress tracker
+        progress_tracker = ProgressTracker(len(usernames))
+        
         for batch_num in range(total_batches):
             start_idx = batch_num * batch_size
             end_idx = min(start_idx + batch_size, len(usernames))
@@ -384,7 +457,8 @@ class RedditUserAnalyzer:
             
             if show_progress:
                 print(f"\n📦 Processing batch {batch_num + 1}/{total_batches} ({len(batch_usernames):,} usernames)...")
-                print(f"  Progress: {start_idx/len(usernames)*100:.1f}% complete ({start_idx:,}/{len(usernames):,} usernames)")
+                progress_data = progress_tracker.update(start_idx, is_batch_complete=True)
+                print(progress_tracker.format_progress_bar(progress_data))
             
             # Use threading by default (more reliable for API calls)
             if use_threading:
@@ -405,7 +479,9 @@ class RedditUserAnalyzer:
             # Save checkpoint periodically
             if len(all_results) % checkpoint_interval == 0:
                 self.save_progress_checkpoint(all_results, checkpoint_file)
-                print(f"  📊 Progress: {len(all_results)/len(usernames)*100:.1f}% complete ({len(all_results):,}/{len(usernames):,} usernames)")
+                progress_data = progress_tracker.update(len(all_results) - progress_tracker.processed_items)
+                print(f"  💾 Checkpoint saved!")
+                print(f"  {progress_tracker.format_progress_bar(progress_data)}")
             
             # Save progress to main output file
             if output_file:
@@ -1174,7 +1250,13 @@ class RedditUserAnalyzer:
         print(f"  Total usernames in dataset: {total_usernames:,}")
         print(f"  Already processed: {already_processed:,}")
         print(f"  Remaining to process: {remaining:,}")
-        print(f"  Progress: {already_processed/total_usernames*100:.1f}% complete")
+        
+        # Calculate enhanced progress information
+        progress_pct = (already_processed / total_usernames) * 100
+        remaining_pct = 100 - progress_pct
+        
+        print(f"  Progress: {progress_pct:.1f}% complete")
+        print(f"  Continuation: {remaining_pct:.1f}% remaining")
         
         print(f"\n📍 Resume Details:")
         print(f"  Last processed username: {last_processed}")
@@ -1182,12 +1264,43 @@ class RedditUserAnalyzer:
         print(f"  Next username to process: {usernames_to_process[0] if usernames_to_process else 'None'}")
         
         if remaining > 0:
-            estimated_time = remaining * 1.5 / 60  # Rough estimate: 1.5 seconds per user
-            print(f"\n⏱️  Estimated completion time: {estimated_time:.1f} minutes")
+            # More accurate time estimation based on 1.68 seconds per username
+            estimated_hours = (remaining * 1.68) / 3600
+            estimated_minutes = (remaining * 1.68) / 60
+            
+            if estimated_hours >= 1:
+                print(f"\n⏱️  Estimated completion time: {estimated_hours:.1f} hours")
+            else:
+                print(f"\n⏱️  Estimated completion time: {estimated_minutes:.1f} minutes")
+            
             print(f"  Checkpoint frequency: Every 50 users")
             print(f"  Progress saved to: F:/DATA STORAGE/AGPacket/")
         
         print("=" * 60)
+    
+    def display_progress_summary(self, processed_count, total_count, start_time=None):
+        """Display a comprehensive progress summary with ETA and continuation percentage."""
+        if start_time is None:
+            start_time = time.time()
+        
+        progress_tracker = ProgressTracker(total_count, start_time)
+        progress_tracker.processed_items = processed_count
+        
+        progress_data = progress_tracker.update(0)
+        
+        print(f"\n📊 PROGRESS SUMMARY")
+        print("-" * 50)
+        print(progress_tracker.format_progress_bar(progress_data))
+        
+        # Additional continuation information
+        remaining_pct = 100 - progress_data['progress_pct']
+        print(f"🎯 Continuation: {remaining_pct:.1f}% remaining")
+        
+        # Instance-specific information if available
+        if hasattr(self, 'instance_id'):
+            print(f"🆔 Instance: {self.instance_id}")
+        
+        return progress_data
 
 def main():
     """Main function to run the Reddit user analyzer."""
@@ -1201,6 +1314,8 @@ def main():
     max_workers = None
     batch_size = 50
     checkpoint_interval = 100
+    instance_id = 1
+    num_instances = 1
     
     if len(sys.argv) > 1:
         for arg in sys.argv[1:]:
@@ -1234,6 +1349,18 @@ def main():
                     print(f"💾 Checkpoint interval set to {checkpoint_interval}")
                 except ValueError:
                     print("⚠️  Invalid checkpoint interval, using default")
+            elif arg.startswith("--instance=") or arg.startswith("-i="):
+                try:
+                    instance_id = int(arg.split("=")[1])
+                    print(f"🆔 Instance ID set to {instance_id}")
+                except ValueError:
+                    print("⚠️  Invalid instance ID, using default")
+            elif arg.startswith("--instances=") or arg.startswith("-n="):
+                try:
+                    num_instances = int(arg.split("=")[1])
+                    print(f"🔢 Total instances set to {num_instances}")
+                except ValueError:
+                    print("⚠️  Invalid number of instances, using default")
             elif arg == "--help" or arg == "-h":
                 print("\nUsage: python reddit_user_analyzer.py [OPTIONS]")
                 print("\nOptions:")
@@ -1243,6 +1370,8 @@ def main():
                 print("  --workers=N, -w=N        Set number of worker processes/threads")
                 print("  --batch-size=N, -b=N     Set batch size for processing (default: 50)")
                 print("  --checkpoint=N, -c=N     Set checkpoint interval (default: 100)")
+                print("  --instance=N, -i=N       Set instance ID for parallel processing (default: 1)")
+                print("  --instances=N, -n=N      Set total number of parallel instances (default: 1)")
                 print("  --examples, -e           Show example usage")
                 print("  --help, -h               Show this help message")
                 print("\nExamples:")
@@ -1250,28 +1379,39 @@ def main():
                 print("  python reddit_user_analyzer.py --threading --workers=8 --batch-size=100")
                 print("  python reddit_user_analyzer.py --multiprocessing --workers=4")
                 print("  python reddit_user_analyzer.py --no-mp")
+                print("  python reddit_user_analyzer.py --instance=1 --instances=2")
+                print("  python reddit_user_analyzer.py --instance=2 --instances=2")
                 return
             elif arg == "--examples" or arg == "-e":
                 example_usage()
                 return
     
-    # Check for environment variables
-    client_id = os.getenv('REDDIT_CLIENT_ID')
-    client_secret = os.getenv('REDDIT_CLIENT_SECRET')
+    # Check for environment variables - support multiple API keys
+    if instance_id == 1:
+        client_id = os.getenv('REDDIT_CLIENT_ID')
+        client_secret = os.getenv('REDDIT_CLIENT_SECRET')
+    else:
+        client_id = os.getenv(f'REDDIT_CLIENT_ID_{instance_id}')
+        client_secret = os.getenv(f'REDDIT_CLIENT_SECRET_{instance_id}')
     
     if not client_id or not client_secret:
-        print("❌ Reddit API credentials not found in environment variables!")
-        print("Please set the following environment variables:")
-        print("  REDDIT_CLIENT_ID=your_client_id")
-        print("  REDDIT_CLIENT_SECRET=your_client_secret")
+        print(f"❌ Reddit API credentials not found for instance {instance_id}!")
+        if instance_id == 1:
+            print("Please set the following environment variables:")
+            print("  REDDIT_CLIENT_ID=your_client_id")
+            print("  REDDIT_CLIENT_SECRET=your_client_secret")
+        else:
+            print(f"Please set the following environment variables:")
+            print(f"  REDDIT_CLIENT_ID_{instance_id}=your_client_id")
+            print(f"  REDDIT_CLIENT_SECRET_{instance_id}=your_client_secret")
         print("\nTo get these credentials:")
         print("1. Go to https://www.reddit.com/prefs/apps")
         print("2. Create a new app (select 'script')")
         print("3. Use the client ID and secret")
         return
     
-    # Initialize analyzer
-    analyzer = RedditUserAnalyzer(client_id, client_secret)
+    # Initialize analyzer with instance ID
+    analyzer = RedditUserAnalyzer(client_id, client_secret, instance_id=instance_id)
     
     # Authenticate
     if not analyzer.authenticate():
@@ -1283,6 +1423,11 @@ def main():
     if not usernames:
         print("No usernames found to analyze.")
         return
+    
+    # Split usernames for parallel processing if multiple instances
+    if num_instances > 1:
+        usernames = analyzer.split_usernames_for_parallel(usernames, num_instances, instance_id)
+        print(f"🔄 Instance {instance_id} will process {len(usernames):,} usernames")
     
     # Check for resume capability
     print(f"\n🔍 Checking for previous analysis progress...")
@@ -1306,7 +1451,18 @@ def main():
         print(f"Previous progress: {already_processed:,} users processed")
         print(f"Remaining work: {len(usernames_to_process):,} users to process")
         print(f"Resume point: {resume_info['last_processed']} → {usernames_to_process[0]}")
-        print(f"Progress: {already_processed/(already_processed + len(usernames_to_process))*100:.1f}% complete")
+        
+        # Calculate and display enhanced progress information
+        total_work = already_processed + len(usernames_to_process)
+        progress_pct = (already_processed / total_work) * 100
+        remaining_pct = 100 - progress_pct
+        
+        # Estimate time based on previous processing rate (assuming 1.68 seconds per username)
+        estimated_remaining_hours = (len(usernames_to_process) * 1.68) / 3600
+        
+        print(f"📊 Progress: {progress_pct:.1f}% complete ({already_processed:,}/{total_work:,})")
+        print(f"⏱️  Estimated remaining time: {estimated_remaining_hours:.1f} hours")
+        print(f"🎯 Continuation: {remaining_pct:.1f}% remaining")
         
         # Print detailed resume summary
         analyzer.print_resume_summary(resume_info, len(usernames), usernames_to_process)
@@ -1314,6 +1470,10 @@ def main():
         print(f"\n🆕 FRESH START")
         print("=" * 60)
         print(f"Total usernames to process: {len(usernames_to_process):,}")
+        
+        # Estimate total processing time
+        estimated_total_hours = (len(usernames_to_process) * 1.68) / 3600
+        print(f"⏱️  Estimated total time: {estimated_total_hours:.1f} hours")
     
     # Clean up old checkpoints
     analyzer.cleanup_old_checkpoints()
