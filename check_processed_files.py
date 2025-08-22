@@ -1,462 +1,515 @@
 #!/usr/bin/env python3
 """
-Processed Files Integrity Checker
-Checks all files in the processed folder for corruption, format issues, and data integrity.
+Reddit Data ML Training Validation Script
+
+This script validates Reddit user analysis data for machine learning training.
+It performs comprehensive checks on data quality, content analysis, and ML readiness.
 """
 
 import json
 import os
 import sys
 from pathlib import Path
+from datetime import datetime, timezone
+from collections import defaultdict, Counter
+import re
+import statistics
+from typing import Dict, List, Any, Tuple
 import pandas as pd
-from datetime import datetime
-import hashlib
+import numpy as np
 
-class ProcessedFilesChecker:
-    def __init__(self, processed_dir="F:/DATA STORAGE/AGPacket"):
-        """
-        Initialize the file checker.
-        
-        Args:
-            processed_dir (str): Path to the processed files directory
-        """
-        self.processed_dir = Path(processed_dir)
-        self.results = {
-            'total_files': 0,
-            'valid_files': 0,
-            'corrupted_files': 0,
-            'format_issues': 0,
-            'encoding_issues': 0,
-            'file_details': []
-        }
+class RedditDataValidator:
+    """Validates Reddit data for ML training readiness."""
     
-    def check_file_integrity(self, file_path):
-        """
-        Check a single file for various types of corruption and issues.
+    def __init__(self, data_dir: str = "F:/DATA STORAGE/AGPacket"):
+        self.data_dir = Path(data_dir)
+        self.validation_results = {}
+        self.data_stats = {}
+        self.ml_readiness_score = 0.0
         
-        Args:
-            file_path (Path): Path to the file to check
-            
-        Returns:
-            dict: File check results
-        """
-        file_info = {
+    def scan_data_files(self) -> List[Path]:
+        """Scan for Reddit analysis data files."""
+        print("🔍 Scanning for Reddit data files...")
+        
+        data_files = []
+        for file_path in self.data_dir.glob("reddit_user_analysis_*.json"):
+            if not file_path.name.endswith('.backup'):
+                data_files.append(file_path)
+        
+        print(f"📁 Found {len(data_files)} data files")
+        return sorted(data_files, key=lambda x: x.stat().st_mtime, reverse=True)
+    
+    def validate_file_integrity(self, file_path: Path) -> Dict[str, Any]:
+        """Validate individual file integrity."""
+        print(f"🔍 Validating: {file_path.name}")
+        
+        result = {
             'file_path': str(file_path),
             'file_name': file_path.name,
             'file_size_mb': file_path.stat().st_size / (1024 * 1024),
-            'last_modified': datetime.fromtimestamp(file_path.stat().st_mtime),
-            'status': 'unknown',
-            'issues': [],
-            'user_count': 0,
-            'file_type': 'unknown'
+            'last_modified': datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc).isoformat(),
+            'is_valid_json': False,
+            'parse_errors': [],
+            'data_structure': {},
+            'validation_status': 'unknown'
         }
         
         try:
-            # Determine file type based on extension and content
-            if file_path.suffix.lower() == '.json':
-                file_info['file_type'] = 'json'
-                result = self._check_json_file(file_path)
-            elif file_path.suffix.lower() == '.csv':
-                file_info['file_type'] = 'csv'
-                result = self._check_csv_file(file_path)
-            else:
-                file_info['file_type'] = 'other'
-                result = self._check_other_file(file_path)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
             
-            # Update file info with check results
-            file_info.update(result)
+            result['is_valid_json'] = True
+            result['data_structure'] = self._analyze_data_structure(data)
+            result['validation_status'] = 'valid'
             
+        except json.JSONDecodeError as e:
+            result['parse_errors'].append(f"JSON decode error: {str(e)}")
+            result['validation_status'] = 'corrupted'
         except Exception as e:
-            file_info['status'] = 'error'
-            file_info['issues'].append(f"Check failed: {str(e)}")
-        
-        return file_info
-    
-    def _check_json_file(self, file_path):
-        """Check JSON file for corruption and format issues."""
-        result = {
-            'status': 'unknown',
-            'issues': [],
-            'user_count': 0,
-            'structure_valid': False,
-            'encoding_valid': False
-        }
-        
-        try:
-            # Check file size
-            file_size = file_path.stat().st_size
-            if file_size == 0:
-                result['status'] = 'corrupted'
-                result['issues'].append("File is empty (0 bytes)")
-                return result
-            
-            # Try different encoding approaches
-            encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']
-            content = None
-            used_encoding = None
-            
-            for encoding in encodings_to_try:
-                try:
-                    with open(file_path, 'r', encoding=encoding) as f:
-                        content = f.read()
-                    used_encoding = encoding
-                    result['encoding_valid'] = True
-                    break
-                except UnicodeDecodeError:
-                    continue
-            
-            if content is None:
-                result['status'] = 'corrupted'
-                result['issues'].append("Cannot decode file with any encoding")
-                return result
-            
-            # Try to parse JSON
-            try:
-                data = json.loads(content)
-                result['structure_valid'] = True
-                
-                # Analyze JSON structure
-                if isinstance(data, list):
-                    result['user_count'] = len(data)
-                    result['status'] = 'valid'
-                    
-                    # Check if it's user analysis data
-                    if data and isinstance(data[0], dict) and 'username' in data[0]:
-                        result['file_type'] = 'user_analysis'
-                    else:
-                        result['file_type'] = 'generic_list'
-                        
-                elif isinstance(data, dict):
-                    result['status'] = 'valid'
-                    
-                    # Check if it's content samples data
-                    if 'users' in data and 'metadata' in data:
-                        result['file_type'] = 'content_samples'
-                        result['user_count'] = len(data['users']) if 'users' in data else 0
-                    elif 'username' in data:
-                        result['file_type'] = 'single_user'
-                        result['user_count'] = 1
-                    else:
-                        result['file_type'] = 'generic_dict'
-                else:
-                    result['status'] = 'format_issue'
-                    result['issues'].append("JSON structure is not list or dict")
-                
-            except json.JSONDecodeError as e:
-                result['status'] = 'corrupted'
-                result['issues'].append(f"JSON parse error: {str(e)}")
-                
-                # Try to find the line with the error
-                try:
-                    lines = content.split('\n')
-                    if e.lineno < len(lines):
-                        problematic_line = lines[e.lineno - 1]
-                        result['issues'].append(f"Problematic line {e.lineno}: {problematic_line[:100]}...")
-                except:
-                    pass
-        
-        except Exception as e:
-            result['status'] = 'error'
-            result['issues'].append(f"Unexpected error: {str(e)}")
+            result['parse_errors'].append(f"Unexpected error: {str(e)}")
+            result['validation_status'] = 'error'
         
         return result
     
-    def _check_csv_file(self, file_path):
-        """Check CSV file for corruption and format issues."""
-        result = {
-            'status': 'unknown',
-            'issues': [],
-            'user_count': 0,
-            'structure_valid': False,
-            'encoding_valid': False
+    def _analyze_data_structure(self, data: List[Dict]) -> Dict[str, Any]:
+        """Analyze the structure of the data."""
+        if not isinstance(data, list):
+            return {'error': 'Data is not a list'}
+        
+        structure = {
+            'total_users': len(data),
+            'user_fields': set(),
+            'post_fields': set(),
+            'comment_fields': set(),
+            'field_coverage': {},
+            'data_types': {}
         }
         
-        try:
-            # Check file size
-            file_size = file_path.stat().st_size
-            if file_size == 0:
-                result['status'] = 'corrupted'
-                result['issues'].append("File is empty (0 bytes)")
-                return result
-            
-            # Try to read CSV with pandas
-            try:
-                df = pd.read_csv(file_path)
-                result['structure_valid'] = True
-                result['user_count'] = len(df)
-                result['status'] = 'valid'
-                
-                # Check for expected columns
-                if len(df.columns) >= 2:
-                    result['issues'].append(f"Has {len(df.columns)} columns (expected at least 2)")
-                else:
-                    result['status'] = 'format_issue'
-                    result['issues'].append(f"Only {len(df.columns)} columns (need at least 2)")
-                
-            except Exception as e:
-                result['status'] = 'corrupted'
-                result['issues'].append(f"CSV read error: {str(e)}")
+        if not data:
+            return structure
         
-        except Exception as e:
-            result['status'] = 'error'
-            result['issues'].append(f"Unexpected error: {str(e)}")
+        # Analyze first user to get field structure
+        first_user = data[0]
+        structure['user_fields'] = set(first_user.keys())
         
-        return result
-    
-    def _check_other_file(self, file_path):
-        """Check other file types."""
-        result = {
-            'status': 'unknown',
-            'issues': [],
-            'user_count': 0,
-            'structure_valid': False,
-            'encoding_valid': False
-        }
+        # Analyze posts and comments structure
+        if 'posts' in first_user and first_user['posts']:
+            structure['post_fields'] = set(first_user['posts'][0].keys())
         
-        try:
-            # Check if file is readable
-            with open(file_path, 'rb') as f:
-                content = f.read(1024)  # Read first 1KB
-            
-            if len(content) == 0:
-                result['status'] = 'corrupted'
-                result['issues'].append("File is empty")
-            else:
-                result['status'] = 'valid'
-                result['issues'].append("File is readable but type not analyzed")
+        if 'comments' in first_user and first_user['comments']:
+            structure['comment_fields'] = set(first_user['comments'][0].keys())
         
-        except Exception as e:
-            result['status'] = 'error'
-            result['issues'].append(f"File access error: {str(e)}")
-        
-        return result
-    
-    def calculate_file_hash(self, file_path):
-        """Calculate MD5 hash of file for integrity checking."""
-        try:
-            hash_md5 = hashlib.md5()
-            with open(file_path, "rb") as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_md5.update(chunk)
-            return hash_md5.hexdigest()
-        except Exception as e:
-            return f"Hash failed: {str(e)}"
-    
-    def check_all_files(self):
-        """Check all files in the processed directory."""
-        print("🔍 Processed Files Integrity Checker")
-        print("=" * 60)
-        print(f"Checking directory: {self.processed_dir}")
-        print()
-        
-        if not self.processed_dir.exists():
-            print(f"❌ Directory not found: {self.processed_dir}")
-            return
-        
-        # Get all files
-        all_files = []
-        for file_path in self.processed_dir.rglob("*"):
-            if file_path.is_file():
-                all_files.append(file_path)
-        
-        all_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-        
-        print(f"Found {len(all_files)} files to check...")
-        print()
-        
-        # Check each file
-        for i, file_path in enumerate(all_files, 1):
-            print(f"[{i}/{len(all_files)}] Checking: {file_path.name}")
-            
-            file_info = self.check_file_integrity(file_path)
-            
-            # Add hash for large files
-            if file_info['file_size_mb'] > 10:  # Files larger than 10MB
-                print(f"  📊 Calculating hash for large file...")
-                file_info['file_hash'] = self.calculate_file_hash(file_path)
-            
-            self.results['file_details'].append(file_info)
-            self.results['total_files'] += 1
-            
-            # Update counters
-            if file_info['status'] == 'valid':
-                self.results['valid_files'] += 1
-            elif file_info['status'] == 'corrupted':
-                self.results['corrupted_files'] += 1
-            elif file_info['status'] == 'format_issue':
-                self.results['format_issues'] += 1
-            elif file_info['status'] == 'error':
-                self.results['encoding_issues'] += 1
-            
-            # Print status
-            status_emoji = {
-                'valid': '✅',
-                'corrupted': '❌',
-                'format_issue': '⚠️',
-                'error': '💥',
-                'unknown': '❓'
+        # Analyze field coverage across all users
+        for field in structure['user_fields']:
+            coverage = sum(1 for user in data if field in user and user[field] is not None)
+            structure['field_coverage'][field] = {
+                'present': coverage,
+                'missing': len(data) - coverage,
+                'coverage_pct': (coverage / len(data)) * 100
             }
-            
-            print(f"  {status_emoji.get(file_info['status'], '❓')} {file_info['status'].upper()}")
-            
-            if file_info['issues']:
-                for issue in file_info['issues']:
-                    print(f"    • {issue}")
-            
-            if file_info['user_count'] > 0:
-                print(f"    👥 Users: {file_info['user_count']:,}")
-            
-            print(f"    📁 Size: {file_info['file_size_mb']:.2f} MB")
-            print()
         
-        self._print_summary()
+        return structure
     
-    def _print_summary(self):
-        """Print summary of all checks."""
-        print("=" * 60)
-        print("📊 INTEGRITY CHECK SUMMARY")
-        print("=" * 60)
-        
-        print(f"Total files checked: {self.results['total_files']}")
-        print(f"✅ Valid files: {self.results['valid_files']}")
-        print(f"❌ Corrupted files: {self.results['corrupted_files']}")
-        print(f"⚠️  Format issues: {self.results['format_issues']}")
-        print(f"💥 Encoding issues: {self.results['encoding_issues']}")
-        
-        if self.results['corrupted_files'] > 0 or self.results['format_issues'] > 0:
-            print(f"\n🚨 ISSUES FOUND:")
-            
-            for file_info in self.results['file_details']:
-                if file_info['status'] in ['corrupted', 'format_issue']:
-                    print(f"  • {file_info['file_name']}: {file_info['status']}")
-                    for issue in file_info['issues']:
-                        print(f"    - {issue}")
-        
-        # File type breakdown
-        file_types = {}
-        for file_info in self.results['file_details']:
-            file_type = file_info.get('file_type', 'unknown')
-            file_types[file_type] = file_types.get(file_type, 0) + 1
-        
-        print(f"\n📁 File Type Breakdown:")
-        for file_type, count in sorted(file_types.items()):
-            print(f"  {file_type}: {count}")
-        
-        # Total user count
-        total_users = sum(file_info.get('user_count', 0) for file_info in self.results['file_details'])
-        print(f"\n👥 Total users across all files: {total_users:,}")
-        
-        # Save detailed results
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_file = f"F:/DATA STORAGE/AGPacket/integrity_check_results_{timestamp}.json"
+    def analyze_content_quality(self, file_path: Path) -> Dict[str, Any]:
+        """Analyze content quality for ML training."""
+        print(f"📊 Analyzing content quality: {file_path.name}")
         
         try:
-            with open(results_file, 'w', encoding='utf-8') as f:
-                json.dump(self.results, f, indent=2, ensure_ascii=False)
-            print(f"\n💾 Detailed results saved to: {results_file}")
-        except Exception as e:
-            print(f"\n❌ Failed to save results: {str(e)}")
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except:
+            return {'error': 'Could not load file'}
+        
+        quality_metrics = {
+            'total_users': len(data),
+            'active_users': 0,
+            'content_distribution': {},
+            'text_quality': {},
+            'subreddit_diversity': set(),
+            'temporal_coverage': {},
+            'engagement_metrics': {'scores': []},
+            'content_length_stats': {'posts': [], 'comments': []},
+            'language_quality': {}
+        }
+        
+        # Analyze each user
+        for user in data:
+            if not isinstance(user, dict):
+                continue
+                
+            # Check if user is active
+            posts_count = len(user.get('posts', []))
+            comments_count = len(user.get('comments', []))
+            if posts_count > 0 or comments_count > 0:
+                quality_metrics['active_users'] += 1
+            
+            # Analyze posts
+            for post in user.get('posts', []):
+                if isinstance(post, dict):
+                    self._analyze_content_item(post, quality_metrics, 'post')
+            
+            # Analyze comments
+            for comment in user.get('comments', []):
+                if isinstance(comment, dict):
+                    self._analyze_content_item(comment, quality_metrics, 'comment')
+        
+        # Convert sets to lists for JSON serialization
+        quality_metrics['subreddit_diversity'] = list(quality_metrics['subreddit_diversity'])
+        
+        # Calculate statistics
+        self._calculate_content_statistics(quality_metrics)
+        
+        return quality_metrics
     
-    def fix_corrupted_files(self, auto_fix=False):
-        """Attempt to fix corrupted files."""
-        print(f"\n🔧 FILE REPAIR MODE")
-        print("=" * 60)
+    def _analyze_content_item(self, item: Dict, metrics: Dict, item_type: str):
+        """Analyze individual content item."""
+        # Subreddit diversity
+        if 'subreddit' in item:
+            metrics['subreddit_diversity'].add(item['subreddit'])
         
-        corrupted_files = [f for f in self.results['file_details'] if f['status'] == 'corrupted']
+        # Content length
+        content = item.get('content', '') or item.get('body', '')
+        if content and content != '[removed]' and content != '[deleted]':
+            content_length = len(content.strip())
+            if 'content_length_stats' not in metrics:
+                metrics['content_length_stats'] = {'posts': [], 'comments': []}
+            metrics['content_length_stats'][f'{item_type}s'].append(content_length)
         
-        if not corrupted_files:
-            print("✅ No corrupted files found!")
-            return
-        
-        print(f"Found {len(corrupted_files)} corrupted files:")
-        for file_info in corrupted_files:
-            print(f"  • {file_info['file_name']}")
-        
-        if not auto_fix:
-            response = input(f"\nDo you want to attempt to fix these files? (y/n): ").lower()
-            if response != 'y':
-                print("File repair cancelled.")
-                return
-        
-        for file_info in corrupted_files:
-            print(f"\n🔧 Attempting to fix: {file_info['file_name']}")
-            
-            if file_info['file_type'] == 'json':
-                success = self._fix_json_file(file_info)
-            else:
-                print(f"  ⚠️  Cannot auto-fix {file_info['file_type']} files")
-                success = False
-            
-            if success:
-                print(f"  ✅ Successfully fixed: {file_info['file_name']}")
-            else:
-                print(f"  ❌ Failed to fix: {file_info['file_name']}")
-    
-    def _fix_json_file(self, file_info):
-        """Attempt to fix a corrupted JSON file."""
-        try:
-            input_file = file_info['file_path']
-            output_file = input_file.replace('.json', '_FIXED.json')
-            
-            # Read file in binary mode
-            with open(input_file, 'rb') as f:
-                binary_content = f.read()
-            
-            # Try to decode with error handling
+        # Temporal coverage
+        if 'created_utc' in item:
             try:
-                content = binary_content.decode('utf-8', errors='replace')
+                timestamp = float(item['created_utc'])
+                date = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                year_month = f"{date.year}-{date.month:02d}"
+                if 'temporal_coverage' not in metrics:
+                    metrics['temporal_coverage'] = {}
+                metrics['temporal_coverage'][year_month] = metrics['temporal_coverage'].get(year_month, 0) + 1
             except:
-                content = binary_content.decode('latin-1')
-            
-            # Try to parse JSON
-            try:
-                data = json.loads(content)
-                
-                # Write fixed file
-                with open(output_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-                
-                return True
-                
-            except json.JSONDecodeError:
-                return False
+                pass
         
-        except Exception:
-            return False
+        # Engagement metrics
+        if 'score' in item:
+            score = item['score']
+            if isinstance(score, (int, float)):
+                if 'engagement_metrics' not in metrics:
+                    metrics['engagement_metrics'] = {'scores': []}
+                metrics['engagement_metrics']['scores'].append(score)
+    
+    def _calculate_content_statistics(self, metrics: Dict):
+        """Calculate statistical measures for content quality."""
+        # Content length statistics
+        for content_type in ['posts', 'comments']:
+            lengths = metrics['content_length_stats'].get(content_type, [])
+            if lengths:
+                metrics['content_length_stats'][f'{content_type}_stats'] = {
+                    'count': len(lengths),
+                    'mean': statistics.mean(lengths),
+                    'median': statistics.median(lengths),
+                    'min': min(lengths),
+                    'max': max(lengths),
+                    'std': statistics.stdev(lengths) if len(lengths) > 1 else 0
+                }
+        
+        # Engagement statistics
+        scores = metrics['engagement_metrics'].get('scores', [])
+        if scores:
+            metrics['engagement_metrics']['score_stats'] = {
+                'count': len(scores),
+                'mean': statistics.mean(scores),
+                'median': statistics.median(scores),
+                'min': min(scores),
+                'max': max(scores),
+                'std': statistics.stdev(scores) if len(scores) > 1 else 0
+            }
+    
+    def assess_ml_readiness(self, quality_metrics: Dict) -> Dict[str, Any]:
+        """Assess if the data is ready for ML training."""
+        print("🤖 Assessing ML training readiness...")
+        
+        ml_assessment = {
+            'overall_score': 0.0,
+            'data_quantity': 0.0,
+            'data_quality': 0.0,
+            'content_diversity': 0.0,
+            'temporal_coverage': 0.0,
+            'recommendations': [],
+            'ml_use_cases': [],
+            'data_limitations': []
+        }
+        
+        # Data quantity score (0-25 points)
+        total_users = quality_metrics.get('total_users', 0)
+        active_users = quality_metrics.get('active_users', 0)
+        
+        if total_users >= 10000:
+            ml_assessment['data_quantity'] = 25.0
+        elif total_users >= 5000:
+            ml_assessment['data_quantity'] = 20.0
+        elif total_users >= 1000:
+            ml_assessment['data_quantity'] = 15.0
+        elif total_users >= 500:
+            ml_assessment['data_quantity'] = 10.0
+        else:
+            ml_assessment['data_quantity'] = 5.0
+        
+        # Data quality score (0-25 points)
+        content_length_stats = quality_metrics.get('content_length_stats', {})
+        post_stats = content_length_stats.get('posts_stats', {})
+        
+        if post_stats.get('count', 0) > 0:
+            avg_length = post_stats.get('mean', 0)
+            if avg_length >= 100:
+                ml_assessment['data_quality'] = 25.0
+            elif avg_length >= 50:
+                ml_assessment['data_quality'] = 20.0
+            elif avg_length >= 20:
+                ml_assessment['data_quality'] = 15.0
+            else:
+                ml_assessment['data_quality'] = 10.0
+        else:
+            ml_assessment['data_quality'] = 5.0
+        
+        # Content diversity score (0-25 points)
+        subreddit_count = len(quality_metrics.get('subreddit_diversity', []))
+        if subreddit_count >= 100:
+            ml_assessment['content_diversity'] = 25.0
+        elif subreddit_count >= 50:
+            ml_assessment['content_diversity'] = 20.0
+        elif subreddit_count >= 20:
+            ml_assessment['content_diversity'] = 15.0
+        elif subreddit_count >= 10:
+            ml_assessment['content_diversity'] = 10.0
+        else:
+            ml_assessment['content_diversity'] = 5.0
+        
+        # Temporal coverage score (0-25 points)
+        temporal_coverage = quality_metrics.get('temporal_coverage', {})
+        if len(temporal_coverage) >= 24:  # 2 years of monthly data
+            ml_assessment['temporal_coverage'] = 25.0
+        elif len(temporal_coverage) >= 12:  # 1 year of monthly data
+            ml_assessment['temporal_coverage'] = 20.0
+        elif len(temporal_coverage) >= 6:  # 6 months of monthly data
+            ml_assessment['temporal_coverage'] = 15.0
+        elif len(temporal_coverage) >= 3:  # 3 months of monthly data
+            ml_assessment['temporal_coverage'] = 10.0
+        else:
+            ml_assessment['temporal_coverage'] = 5.0
+        
+        # Calculate overall score
+        ml_assessment['overall_score'] = (
+            ml_assessment['data_quantity'] +
+            ml_assessment['data_quality'] +
+            ml_assessment['content_diversity'] +
+            ml_assessment['temporal_coverage']
+        )
+        
+        # Generate recommendations
+        self._generate_ml_recommendations(ml_assessment, quality_metrics)
+        
+        return ml_assessment
+    
+    def _generate_ml_recommendations(self, assessment: Dict, quality_metrics: Dict):
+        """Generate ML training recommendations."""
+        recommendations = []
+        ml_use_cases = []
+        limitations = []
+        
+        # Data quantity recommendations
+        if assessment['data_quantity'] < 20:
+            recommendations.append("Consider collecting more user data for robust ML training")
+            limitations.append("Limited training data may lead to overfitting")
+        
+        # Data quality recommendations
+        if assessment['data_quality'] < 20:
+            recommendations.append("Content length is limited - consider filtering for longer posts")
+            limitations.append("Short content may not provide sufficient context for ML models")
+        
+        # Diversity recommendations
+        if assessment['content_diversity'] < 20:
+            recommendations.append("Limited subreddit diversity - consider expanding data collection")
+            limitations.append("Low diversity may bias models toward specific topics")
+        
+        # ML use cases based on data characteristics
+        if assessment['overall_score'] >= 80:
+            ml_use_cases.extend([
+                "User behavior prediction",
+                "Content recommendation systems",
+                "Sentiment analysis",
+                "Topic modeling",
+                "User clustering and segmentation"
+            ])
+        elif assessment['overall_score'] >= 60:
+            ml_use_cases.extend([
+                "Basic sentiment analysis",
+                "Simple topic classification",
+                "User activity prediction"
+            ])
+        else:
+            ml_use_cases.append("Limited ML applications - data quality needs improvement")
+        
+        assessment['recommendations'] = recommendations
+        assessment['ml_use_cases'] = ml_use_cases
+        assessment['data_limitations'] = limitations
+    
+    def generate_validation_report(self, file_paths: List[Path]) -> Dict[str, Any]:
+        """Generate comprehensive validation report."""
+        print("📋 Generating validation report...")
+        
+        report = {
+            'validation_timestamp': datetime.now(timezone.utc).isoformat(),
+            'total_files_analyzed': len(file_paths),
+            'file_validation_results': [],
+            'content_quality_analysis': {},
+            'ml_readiness_assessment': {},
+            'summary_statistics': {},
+            'recommendations': []
+        }
+        
+        # Validate each file
+        for file_path in file_paths:
+            file_result = self.validate_file_integrity(file_path)
+            report['file_validation_results'].append(file_result)
+            
+            # Analyze content quality for valid files
+            if file_result['validation_status'] == 'valid':
+                quality_metrics = self.analyze_content_quality(file_path)
+                report['content_quality_analysis'][file_path.name] = quality_metrics
+                
+                # Assess ML readiness
+                ml_assessment = self.assess_ml_readiness(quality_metrics)
+                report['ml_readiness_assessment'][file_path.name] = ml_assessment
+        
+        # Generate summary statistics
+        report['summary_statistics'] = self._generate_summary_statistics(report)
+        
+        # Generate overall recommendations
+        report['recommendations'] = self._generate_overall_recommendations(report)
+        
+        return report
+    
+    def _generate_summary_statistics(self, report: Dict) -> Dict[str, Any]:
+        """Generate summary statistics across all files."""
+        valid_files = [f for f in report['file_validation_results'] if f['validation_status'] == 'valid']
+        
+        if not valid_files:
+            return {'error': 'No valid files found'}
+        
+        summary = {
+            'total_valid_files': len(valid_files),
+            'total_corrupted_files': len([f for f in report['file_validation_results'] if f['validation_status'] == 'corrupted']),
+            'total_data_size_mb': sum(f['file_size_mb'] for f in valid_files),
+            'average_file_size_mb': statistics.mean(f['file_size_mb'] for f in valid_files),
+            'ml_readiness_scores': []
+        }
+        
+        # Collect ML readiness scores
+        for file_name, ml_assessment in report['ml_readiness_assessment'].items():
+            summary['ml_readiness_scores'].append(ml_assessment['overall_score'])
+        
+        if summary['ml_readiness_scores']:
+            summary['average_ml_score'] = statistics.mean(summary['ml_readiness_scores'])
+            summary['best_ml_score'] = max(summary['ml_readiness_scores'])
+            summary['worst_ml_score'] = min(summary['ml_readiness_scores'])
+        
+        return summary
+    
+    def _generate_overall_recommendations(self, report: Dict) -> List[str]:
+        """Generate overall recommendations based on all data."""
+        recommendations = []
+        
+        summary = report['summary_statistics']
+        
+        if summary.get('total_corrupted_files', 0) > 0:
+            recommendations.append(f"Fix {summary['total_corrupted_files']} corrupted files before ML training")
+        
+        if summary.get('average_ml_score', 0) < 60:
+            recommendations.append("Overall data quality is below optimal for ML training")
+        
+        if summary.get('total_data_size_mb', 0) < 100:
+            recommendations.append("Consider collecting more data for comprehensive ML training")
+        
+        recommendations.append("Use the best quality files (highest ML readiness scores) for initial ML experiments")
+        recommendations.append("Implement data preprocessing pipeline to clean and standardize content")
+        
+        return recommendations
+    
+    def save_validation_report(self, report: Dict, output_file: str = None) -> str:
+        """Save validation report to file."""
+        if output_file is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = f"ml_validation_report_{timestamp}.json"
+        
+        output_path = Path(output_file)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2, ensure_ascii=False, default=str)
+        
+        print(f"💾 Validation report saved: {output_path}")
+        return str(output_path)
+    
+    def print_summary(self, report: Dict):
+        """Print a human-readable summary of the validation results."""
+        print("\n" + "="*80)
+        print("🤖 REDDIT DATA ML TRAINING VALIDATION REPORT")
+        print("="*80)
+        
+        summary = report['summary_statistics']
+        
+        print(f"\n📊 SUMMARY STATISTICS:")
+        print(f"   Total files analyzed: {report['total_files_analyzed']}")
+        print(f"   Valid files: {summary.get('total_valid_files', 0)}")
+        print(f"   Corrupted files: {summary.get('total_corrupted_files', 0)}")
+        print(f"   Total data size: {summary.get('total_data_size_mb', 0):.1f} MB")
+        print(f"   Average ML readiness score: {summary.get('average_ml_score', 0):.1f}/100")
+        
+        print(f"\n🏆 BEST QUALITY FILES:")
+        ml_scores = []
+        for file_name, ml_assessment in report['ml_readiness_assessment'].items():
+            ml_scores.append((file_name, ml_assessment['overall_score']))
+        
+        ml_scores.sort(key=lambda x: x[1], reverse=True)
+        for i, (file_name, score) in enumerate(ml_scores[:3]):
+            print(f"   {i+1}. {file_name}: {score:.1f}/100")
+        
+        print(f"\n💡 RECOMMENDATIONS:")
+        for i, rec in enumerate(report['recommendations'][:5], 1):
+            print(f"   {i}. {rec}")
+        
+        print(f"\n🚀 ML USE CASES:")
+        if report['ml_readiness_assessment']:
+            # Get use cases from the best file
+            best_file = ml_scores[0][0]
+            use_cases = report['ml_readiness_assessment'][best_file]['ml_use_cases']
+            for i, use_case in enumerate(use_cases[:5], 1):
+                print(f"   {i}. {use_case}")
+        
+        print("="*80)
 
 def main():
-    """Main function to run the integrity checker."""
+    """Main function to run the validation."""
+    print("🔍 Reddit Data ML Training Validator")
+    print("="*50)
     
-    # Parse command line arguments
-    auto_fix = False
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--auto-fix":
-            auto_fix = True
-        elif sys.argv[1] == "--help" or sys.argv[1] == "-h":
-            print("Usage: python check_processed_files.py [OPTIONS]")
-            print("\nOptions:")
-            print("  --auto-fix    Automatically attempt to fix corrupted files")
-            print("  --help, -h    Show this help message")
-            return
+    # Initialize validator
+    validator = RedditDataValidator()
     
-    # Initialize checker
-    checker = ProcessedFilesChecker()
+    # Scan for data files
+    data_files = validator.scan_data_files()
     
-    # Check all files
-    checker.check_all_files()
+    if not data_files:
+        print("❌ No Reddit data files found!")
+        return
     
-    # Offer to fix corrupted files
-    if checker.results['corrupted_files'] > 0:
-        checker.fix_corrupted_files(auto_fix=auto_fix)
+    # Generate validation report
+    report = validator.generate_validation_report(data_files)
+    
+    # Save report
+    output_file = validator.save_validation_report(report)
+    
+    # Print summary
+    validator.print_summary(report)
+    
+    print(f"\n✅ Validation complete! Full report saved to: {output_file}")
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n\n⏹️  Check interrupted by user.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n💥 Unexpected error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    main()
