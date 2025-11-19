@@ -380,6 +380,7 @@ class RedditDataValidator:
                 report['ml_readiness_assessment'][file_path.name] = ml_assessment
         
         # Generate summary statistics
+        # Summary statistic reports only checks the processed reback on the recent json cached files. It still doesn't conjunct the different types of strong classes together, which is an issue on longer dataset.
         report['summary_statistics'] = self._generate_summary_statistics(report)
         
         # Generate overall recommendations
@@ -444,9 +445,9 @@ class RedditDataValidator:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, indent=2, ensure_ascii=False, default=str)
         
-        print(f"💾 Validation report saved: {output_path}")
+        print(f"Validation report saved: {output_path}")
         return str(output_path)
-    
+        
     def print_summary(self, report: Dict):
         """Print a human-readable summary of the validation results."""
         print("\n" + "="*80)
