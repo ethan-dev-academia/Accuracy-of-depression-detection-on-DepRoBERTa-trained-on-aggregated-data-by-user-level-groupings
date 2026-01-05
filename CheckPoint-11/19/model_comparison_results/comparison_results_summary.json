@@ -1,0 +1,59 @@
+{
+  "your_model": {
+    "accuracy": 0.7396899678268499,
+    "f1_score": 0.7307666265546469,
+    "precision": 0.7404469605018517,
+    "recall": 0.7396899678268499,
+    "confusion_matrix": [
+      [
+        764,
+        628
+      ],
+      [
+        262,
+        1765
+      ]
+    ]
+  },
+  "default_model_3class": {
+    "distribution": {
+      "0": 201,
+      "1": 785,
+      "2": 2433
+    },
+    "label_mapping": {
+      "0": "not depression",
+      "1": "moderate",
+      "2": "severe"
+    }
+  },
+  "default_model_binary": {
+    "accuracy": 0.597835624451594,
+    "f1_score": 0.4931577576458651,
+    "precision": 0.5772773407101219,
+    "recall": 0.597835624451594,
+    "confusion_matrix": [
+      [
+        109,
+        1283
+      ],
+      [
+        92,
+        1935
+      ]
+    ]
+  },
+  "comparison": {
+    "accuracy_improvement": 0.14185434337525593,
+    "f1_improvement": 0.23760886890878175,
+    "accuracy_improvement_percent": 14.185434337525592,
+    "f1_improvement_percent": 23.760886890878176
+  },
+  "test_set_info": {
+    "total_examples": 3419,
+    "label_distribution": {
+      "0": 1392,
+      "1": 2027
+    }
+  }
+}

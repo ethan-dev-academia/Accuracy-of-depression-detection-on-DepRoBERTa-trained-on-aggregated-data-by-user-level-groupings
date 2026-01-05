@@ -1,0 +1,24 @@
+{
+  "default_model_3class_distribution": {
+    "0": {
+      "count": 201,
+      "percentage": 5.878911962562153,
+      "label": "not depression"
+    },
+    "1": {
+      "count": 785,
+      "percentage": 22.959929804036268,
+      "label": "moderate"
+    },
+    "2": {
+      "count": 2433,
+      "percentage": 71.16115823340158,
+      "label": "severe"
+    }
+  },
+  "mapping_to_binary": {
+    "not_depression (0)": "maps to non-depression (0)",
+    "moderate (1)": "maps to depression (1)",
+    "severe (2)": "maps to depression (1)"
+  }
+}

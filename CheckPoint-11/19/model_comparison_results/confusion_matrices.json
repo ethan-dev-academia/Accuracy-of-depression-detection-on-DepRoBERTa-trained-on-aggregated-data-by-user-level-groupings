@@ -1,0 +1,34 @@
+{
+  "your_model": {
+    "matrix": [
+      [
+        764,
+        628
+      ],
+      [
+        262,
+        1765
+      ]
+    ],
+    "labels": [
+      "non-depression",
+      "depression"
+    ]
+  },
+  "default_model_binary": {
+    "matrix": [
+      [
+        109,
+        1283
+      ],
+      [
+        92,
+        1935
+      ]
+    ],
+    "labels": [
+      "non-depression",
+      "depression"
+    ]
+  }
+}
