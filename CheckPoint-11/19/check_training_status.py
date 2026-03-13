@@ -54,3 +54,6 @@ print(f"  2. Look for checkpoints in: {model_dir}")
 print(f"  3. Run this script again to see updates")
 print("="*80)
 
+
+
+

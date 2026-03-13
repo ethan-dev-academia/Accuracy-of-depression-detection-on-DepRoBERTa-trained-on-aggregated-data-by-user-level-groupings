@@ -92,3 +92,6 @@ print("\nThe 3-epoch model is MUCH BETTER than the 4-epoch model.")
 print("Recommendation: Use the previous 3-epoch model and don't train longer.")
 print("If you want to improve, use early stopping with the 3-epoch model as starting point.")
 
+
+
+
