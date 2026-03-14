@@ -1,0 +1,48 @@
+{
+  "test_set_size": 10000,
+  "posts": 1362,
+  "comments": 8638,
+  "label_distribution": {
+    "0": 5771,
+    "1": 4229
+  },
+  "your_model": {
+    "accuracy": 0.4201,
+    "f1_score": 0.3635902393239956,
+    "precision": 0.45484594740546325,
+    "recall": 0.4201,
+    "confusion_matrix": [
+      [
+        921,
+        4850
+      ],
+      [
+        949,
+        3280
+      ]
+    ]
+  },
+  "default_model_binary": {
+    "accuracy": 0.4227,
+    "f1_score": 0.2592322306609237,
+    "precision": 0.46090295608507204,
+    "recall": 0.4227,
+    "confusion_matrix": [
+      [
+        46,
+        5725
+      ],
+      [
+        48,
+        4181
+      ]
+    ]
+  },
+  "comparison": {
+    "accuracy_improvement": -0.0026000000000000467,
+    "accuracy_improvement_percent": -0.26000000000000467,
+    "f1_improvement": 0.10435800866307188,
+    "f1_improvement_percent": 10.435800866307188,
+    "relative_accuracy_improvement": -0.6150934468890576
+  }
+}

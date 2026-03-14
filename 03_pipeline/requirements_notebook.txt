@@ -1,0 +1,6 @@
+# Requirements for RESULTS_SECTION_COMPLETE.ipynb
+# Only matplotlib and numpy are needed (no pandas/seaborn)
+
+matplotlib>=3.10.0
+numpy>=2.0.0
+

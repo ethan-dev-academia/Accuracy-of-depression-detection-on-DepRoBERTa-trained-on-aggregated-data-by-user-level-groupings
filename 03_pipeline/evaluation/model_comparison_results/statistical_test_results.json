@@ -1,0 +1,37 @@
+{
+  "sample_size": 3419,
+  "accuracies": {
+    "fine_tuned": 0.7396899678268499,
+    "default": 0.597835624451594,
+    "difference": 0.14185434337525593,
+    "relative_improvement_percent": 23.727984344422705
+  },
+  "mcnemar_test": {
+    "contingency_table": {
+      "both_correct": 1785,
+      "fine_tuned_correct_default_wrong": 744,
+      "fine_tuned_wrong_default_correct": 259,
+      "both_wrong": 631
+    },
+    "chi_squared": 233.55533399800598,
+    "p_value": 0.0,
+    "significant": true
+  },
+  "proportion_test": {
+    "z_statistic": 12.461536187042025,
+    "p_value": 0.0,
+    "confidence_interval_95": {
+      "lower": 0.11954292776466593,
+      "upper": 0.16416575898584593
+    },
+    "significant": true
+  },
+  "effect_size": {
+    "cohens_h": 0.3030061527545682,
+    "interpretation": "Medium"
+  },
+  "conclusion": {
+    "statistically_significant": true,
+    "practically_meaningful": true
+  }
+}

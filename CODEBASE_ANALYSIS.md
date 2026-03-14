@@ -21,14 +21,18 @@ This codebase implements a complete machine learning pipeline for **binary depre
 
 ## 📁 Project Structure
 
-### Main Directories
+**See `PROJECT_ROADMAP.md`** for the chronological exploration map (paper phases → code).
+
+### Main Directories (Reorganized by Phase)
 
 ```
 2025-ML-NLP-Research/
-├── CheckPoint-11/19/          # Main project directory (labeling & training)
-├── Data Processing (Summer Back)/  # Reddit data collection tools
-├── saved_models/              # Trained model checkpoints
-├── ModelB_final/              # Alternative model storage
+├── 01_data_collection/        # Phase 1: Reddit data collection (was: Data Processing Summer Back)
+├── 02_model_exploration/      # Phase 2: DepRoBERTa setup, loadingPretrainedModel.ipynb
+├── 03_pipeline/               # Phase 3–5: Labeling, training, evaluation (was: CheckPoint-11/19)
+├── 04_outputs/                # Phase 6: Model outputs (ModelB_final, saved_models copy)
+├── saved_models/              # Trained model checkpoints (stays at root for script compatibility)
+├── ModelB_final/              # Junction → 04_outputs/models/ModelB_final
 └── modelB_training.py         # Main training script
 ```
 
@@ -37,7 +41,7 @@ This codebase implements a complete machine learning pipeline for **binary depre
 ## 🔄 Complete Pipeline Overview
 
 ### Phase 1: Data Collection & Processing
-**Location**: `Data Processing (Summer Back)/`
+**Location**: `01_data_collection/`
 
 - **Purpose**: Collect and process Reddit user data
 - **Tools**: 
@@ -47,7 +51,7 @@ This codebase implements a complete machine learning pipeline for **binary depre
 - **Output**: JSON files with user posts/comments in `F:\DATA STORAGE\AGG_PACKET`
 
 ### Phase 2: Labeling Pipeline
-**Location**: `CheckPoint-11/19/`
+**Location**: `03_pipeline/`
 
 A 4-step automated pipeline:
 
@@ -78,7 +82,7 @@ A 4-step automated pipeline:
 **Pipeline Orchestrator**: `run_labeling_pipeline.py` (runs all 4 steps automatically)
 
 ### Phase 3: Model Training
-**Location**: `CheckPoint-11/19/` and root directory
+**Location**: `03_pipeline/` and root (`modelB_training.py`)
 
 #### Training Scripts:
 - `modelB_training.py` - Main interactive training script (root)
@@ -102,7 +106,7 @@ A 4-step automated pipeline:
 - **Label Distribution**: 59.3% depression, 40.7% non-depression
 
 ### Phase 4: Model Evaluation & Comparison
-**Location**: `CheckPoint-11/19/model_comparison_results/`
+**Location**: `03_pipeline/evaluation/model_comparison_results/`
 
 - Compares fine-tuned model vs. default DepRoBERTa
 - Generates comprehensive metrics and reports
@@ -166,7 +170,7 @@ saved_models/depression_classifier_final/ (Trained Model)
 
 ## 🔑 Key Components & Files
 
-### Core Labeling Scripts (CheckPoint-11/19/)
+### Core Labeling Scripts (03_pipeline/)
 1. **`extract_rmh_labels.py`** - Extract labels from RMH dataset
 2. **`match_labels_to_agg_packet.py`** - Match labels to user data
 3. **`validate_labeled_data.py`** - Validate labeled data quality
@@ -263,14 +267,14 @@ Multiple training scripts exist with different features:
 - Choose based on needs (most use `train_final_model.py`)
 
 ### 9. **Reddit Data Processing**
-- Separate directory: `Data Processing (Summer Back)/`
+- Separate directory: `01_data_collection/`
 - Contains tools for collecting Reddit data via API
 - Creates the AGG_PACKET JSON files used in labeling pipeline
 - Can be run independently
 
 ### 10. **Comparison Results**
 - Model comparison already completed
-- Results in `model_comparison_results/`
+- Results in `03_pipeline/evaluation/model_comparison_results/`
 - Shows your model outperforms baseline significantly
 - Useful for documentation and analysis
 
@@ -280,7 +284,7 @@ Multiple training scripts exist with different features:
 
 ### To Run Labeling Pipeline:
 ```bash
-cd CheckPoint-11/19
+cd 03_pipeline/labeling
 python run_labeling_pipeline.py
 ```
 
@@ -364,7 +368,7 @@ The codebase includes extensive documentation:
 - Status reports
 - Comparison analyses
 
-All documentation is in `CheckPoint-11/19/` directory with `.md` files.
+All documentation is in `03_pipeline/docs/` directory with `.md` files.
 
 ---
 
